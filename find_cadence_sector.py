@@ -6,7 +6,7 @@ def get_cbv_cadence_bounds(tic_id, sectors=range(70, 84)):
     for sector in sectors:
         try:
             # Download one lightcurve for this TIC in this sector
-            lc = lk.search_lightcurve(f"TIC {tic_id}", sector=sector).download()
+            lc = lk.search_lightcurve(f"TIC {tic_id}").download()
 
             # Extract camera and CCD from the lightcurve
             cbvs = lk.correctors.load_tess_cbvs(
