@@ -27,13 +27,14 @@ def load_cbv(sector: int, camera: int, ccd: int, directory: str = "."):
                         k = j+1
                         try:
                             evec = hdulist2[1].data['VECTOR_%s' % k]
+                            cbv_matrix.append(evec)
                             if np.any(evec): N_vecs += 1
                         except: continue
-    raise FileNotFoundError(f"No CBV FITS found for sector {sector}, cam {camera}, ccd {ccd}")
-
+                        raise FileNotFoundError(f"No CBV FITS found for sector {sector}, cam {camera}, ccd {ccd}")
+    return cbv_matrix, cadence, N_vecs
 
 # Example usage:
-hdul = load_cbv(sector=70, camera=4, ccd=4)
+# cbv_matrix, cadence, N_vec = load_cbv(sector=70, camera=4, ccd=4)
 
 
 def check_symmetric(a, rtol=1e-05):
