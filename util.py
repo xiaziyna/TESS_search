@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 import pickle
 
 def load_cbv(sector: int, camera: int, ccd: int, directory: str = "."):
-    # Zero-pad sector
     sector_str = f"{sector:04d}"
     # Find filename pattern
     for fname in os.listdir(directory):
@@ -35,7 +34,6 @@ def load_cbv(sector: int, camera: int, ccd: int, directory: str = "."):
 
 # Example usage:
 # cbv_matrix, cadence, N_vec = load_cbv(sector=70, camera=4, ccd=4)
-
 
 def check_symmetric(a, rtol=1e-05):
     return (np.sum(a-a.T) < rtol)
