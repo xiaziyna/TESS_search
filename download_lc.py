@@ -1,8 +1,8 @@
 import lightkurve as lk
 import pickle
 import numpy as np
-from info import sectors
-
+#from info import sectors
+sectors = [73, 83]
 lc_data = {}
 processed_lc_data = {}
 time_data = {}
@@ -26,8 +26,8 @@ for tid in tid_list:
         quality = lc_sap.quality # Quality, tells you when the lightcurve values are bad and should be masked 
         lc_data[sector] = lc_sap.flux.to_value()[~quality.astype(bool)]
         processed_lc_data[sector] = lc_pdc.flux.to_value()[~quality.astype(bool)]
-        times_data[sector] = lc_sap.cadenceno[~quality.astype(bool)]
+        time_data[sector] = lc_sap.cadenceno[~quality.astype(bool)]
         cam_data[sector] = lightcurve.camera
         ccd_data[sector] = lightcurve.ccd
-
-    pickle.dump((lc_data, processed_lc_data, times_data, cam_data, ccd_data), open('~/TESS/data/%s.p' % (tic_id), 'wb'))
+    pickle.dump((lc_data, processed_lc_data, time_data, cam_data, ccd_data), open('~/TESS/data/%s.p' % (tic_id), 'wb'))
+    
