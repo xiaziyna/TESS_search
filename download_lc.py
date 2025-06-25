@@ -1,8 +1,8 @@
 import lightkurve as lk
 import pickle
 import numpy as np
-#from info import sectors
-sectors = [73, 83]
+from info import sectors
+
 lc_data = {}
 processed_lc_data = {}
 time_data = {}
