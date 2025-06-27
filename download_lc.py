@@ -31,9 +31,9 @@ for tid in tid_list:
             except: 
                 print ('missing sector', tic_id)
                 continue
-            lc_sap = lightcurve.SAP_FLUX # SAP = Simple Aperture Photometry = unprocessed data
+            lc_sap = lightcurve.SAP_FLUX 
             lc_pdc = lightcurve.PDCSAP_FLUX
-            quality = lc_sap.quality # Quality, tells you when the lightcurve values are bad and should be masked 
+            quality = lc_sap.quality 
             lc_data[sector] = lc_sap.flux.to_value()[~quality.astype(bool)]
             processed_lc_data[sector] = lc_pdc.flux.to_value()[~quality.astype(bool)]
             time_data[sector] = lc_sap.cadenceno[~quality.astype(bool)]
