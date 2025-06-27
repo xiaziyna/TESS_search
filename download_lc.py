@@ -1,7 +1,7 @@
 import lightkurve as lk
 import pickle
 import numpy as np
-from info import sectors
+from info import sectors, cadence_bounds
 import os
 
 
@@ -18,6 +18,11 @@ for tid in tid_list:
         time_data = {}
         cam_data = {}
         ccd_data = {}
+        centroid_xy_data = {}
+        coeff_ls = {}
+        detrend_data = {}
+        norm_offset = {}
+        quality = {}
         for sector in range(sectors[0], sectors[-1]+1):
             print (sector, tic_id)
             try:
@@ -34,4 +39,23 @@ for tid in tid_list:
             time_data[sector] = lc_sap.cadenceno[~quality.astype(bool)]
             cam_data[sector] = lightcurve.camera
             ccd_data[sector] = lightcurve.ccd
-        pickle.dump((lc_data, processed_lc_data, time_data, cam_data, ccd_data), open('~/TESS/data/%s.p' % (tic_id), 'wb'))
+            quality[sector] = lightcurve.quality
+            centroid_xy_data[sector] = [lightcurve.centroid_col, lightcurve.centroid_row] #are these the right way around?
+            evecs = pickle.load(open("priors/%s/evec_matrix_%s_%s_%s.p" % (sector, sector, cam_data[sector], ccd_data[sector]), "rb" ) #add correct path!
+            cadence_data = time_data[sector] - cadence_bounds[sector][0]
+            lc_offset = np.nanmedian(lc_sap)
+            lc_sap -= lc_offset
+            lc_norm = np.linalg.norm(lc_sap)
+            lc_sap /= lc_norm
+            evecs_mask = evecs[:, cadence_data]
+            coeff = np.dot(evecs_mask, lc.T)
+            coeff_ls[sector] = coeff
+            norm_offset[sector] = [lc_offset, lc_norm]
+            coeff_tid[sector] = coeff*lc_norm
+            detrend_data[sector] = lc_norm*(lc_sap - np.dot(coeff, evecs)) 
+            # uncomment me on first run, then delete - just to check the output looks fine!
+            # import matplotlib.pyplot as plt
+            # plt.figure
+            # plt.scatter(cadence_data, detrend[sector])
+            # plt.show
+        pickle.dump((lc_data, processed_lc_data, detrend_data, norm_offset, quality, time_data, cam_data, ccd_data, coeff_ls), open('~/TESS/data/%s.p' % (tic_id), 'wb'))
