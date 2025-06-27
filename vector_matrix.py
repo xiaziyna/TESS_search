@@ -19,5 +19,4 @@ for sector in range(sectors[0], sectors[1]+1)
                         if np.any(evec): N_vecs += 1
                         evecs[j, times - cadence_bounds[sector][0]] = evec
                     except: continue
-                pickle.dump(evecs, open( s_dir+"priors/%s/evec_matrix_%s_%s_%s.p" % (sector, sector, cam, ccd), "wb" ) ) #change path
-            print ('sector, cam, ccd: ', sector, cam, ccd, N_vecs)
+            pickle.dump(evecs, open( s_dir+"priors/%s/evec_matrix_%s_%s_%s.p" % (sector, sector, cam, ccd), "wb" ) ) #change path
