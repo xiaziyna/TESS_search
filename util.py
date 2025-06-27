@@ -8,34 +8,6 @@ import pickle
 import lightkurve as lk
 import numpy as np
 
-#have a master list of cadence start, cadence_end for each sector - based on the CBV's.
-
-def get_flux_per_sector(tic_id: int, sectors=range(70, 84)):
-    sector_data = {}
-
-    for sector in sectors:
-        try:
-            lc = lk.search_lightcurve(f"TIC {tic_id}", sector=sector, author='SPOC', cadence='short').download()
-            lc_sap = lightcurve.SAP_FLUX # SAP = Simple Aperture Photometry = unprocessed data
-            quality = lc_sap.quality # Quality, tells you when the lightcurve values are bad and should be masked 
-            
-            lc_sap_flux = lc_sap.flux.to_value()#[~quality.astype(bool)]     # Uncomment to mask bad quality points
-            times_cadence= lc_sap.cadenceno#[~quality.astype(bool)]
-            sector_data[sector]
-            
-    return sector_data
-
-# Example usage:
-tic_id = 123456789
-data = get_flux_per_sector(tic_id)
-
-# Save each sector as its own .npy file
-for sector, arr in data.items():
-    filename = f"tic{tic_id}_sector{sector}_cadence_flux.npy"
-    np.save(filename, arr)
-    print("Saved", filename)
-
-
 def load_cbv(sector: int, camera: int, ccd: int, directory: str = "."):
     sector_str = f"{sector:04d}"
     # Find filename pattern
