@@ -17,3 +17,5 @@ for sector in sectors:
     zp_lc = np.zeros((2*N_cadence) - 1)
     zp_lc[:N_cadence] = detrend
     p_noise_smooth = smooth_p(zp_lc, K=3)
+    ac = np.real(np.fft.ifft(p_noise_smooth)).astype('float32')
+    ac = ac[:N_cadence+1]
