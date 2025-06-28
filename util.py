@@ -8,6 +8,9 @@ import pickle
 import lightkurve as lk
 import numpy as np
 
+def safe_div(n, d):
+    return n / d if d else 0
+
 def load_cbv(sector: int, camera: int, ccd: int, directory: str = "."):
     sector_str = f"{sector:04d}"
     # Find filename pattern
