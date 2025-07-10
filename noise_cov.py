@@ -4,7 +4,7 @@ import numpy as np
 from util import smooth_p
 from info import *
 
-(_, _, detrend_data, norm_offset, quality, cadence_data, _, _, _) = pickle.load(open('~/TESS/data/%s.p' % (tic_id), 'rb'))
+(_, _, detrend_data, norm_offset, quality, time_data, _, _, _) = pickle.load(open('~/TESS/data/%s.p' % (tic_id), 'rb'))
 
 for sector in sectors:
     cadence_data = time_data[sector] - cadence_bounds[sector][0] -1
