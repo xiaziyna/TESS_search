@@ -37,19 +37,16 @@ def transit_den(K_d, num_period):
 # Load lc and inverse covariance model
 # ====================================
 
-(lc_data, processed_lc_data, detrend_data, norm_offset, quality_data, time_data, cam_data, ccd_data, coeff_ls, centroid_xy_data, pos_xy_corr) = pickle.load(open(os.path.expanduser('~/TESS/data/%s.p' % (tic_id)), 'rb')) 
+#(lc_data, processed_lc_data, detrend_data, norm_offset, quality_data, time_data, cam_data, ccd_data, coeff_ls, centroid_xy_data, pos_xy_corr) = pickle.load(open(os.path.expanduser('~/TESS/data/%s.p' % (tic_id)), 'rb')) 
 
-
-# lc_detrend, cov_inv 
-# lc_detrend maybe subtract out low rank mean
-# Use K = 16 for low-rank model
+lc_detrend, cov_inv = covariance_sector(tid, sector)
 
 # ====================================
 # Defining transit parameter search space (period, epoch, duration)
 # Period ranges from 0 to N/2
 # epoch ranges from 0 to P
 
-delta = 50 # period and epoch step size in 2-minute samples
+delta = 5 # period and epoch step size in 2-minute samples
 durations = jnp.array([1, 2, 3, 4, 6, 8, 10, 12, 14, 16])*30 
 N_full = len(lc_detrend)
 lc_cov_inv = cov_inv.dot(lc_detrend) # y^T Cov_inv
