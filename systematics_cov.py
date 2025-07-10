@@ -31,7 +31,7 @@ def gen_cov_c(sector, cam, ccd):
     for i in range(N):
         tid = tid_list[N]
         lc, cadence_data = quick_lc_dl(sector, tid)
-        cadence_data -= cadence_bounds[sector][0]
+        cadence_data -= cadence_bounds[sector][0] - 1
         lc_offset = np.nanmedian(lc)
         lc -= lc_offset
         lc_norm = np.linalg.norm(lc)
