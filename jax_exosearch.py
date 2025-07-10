@@ -37,6 +37,9 @@ def transit_den(K_d, num_period):
 # Load lc and inverse covariance model
 # ====================================
 
+(lc_data, processed_lc_data, detrend_data, norm_offset, quality_data, time_data, cam_data, ccd_data, coeff_ls, centroid_xy_data, pos_xy_corr) = pickle.load(open(os.path.expanduser('~/TESS/data/%s.p' % (tic_id)), 'rb')) 
+
+
 # lc_detrend, cov_inv 
 # lc_detrend maybe subtract out low rank mean
 # Use K = 16 for low-rank model
