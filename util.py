@@ -183,25 +183,50 @@ def cbv_matrix(lc_cadence, sector, cam, ccd, model_order = None):
     V_masked = V[np.in1d(cbvs.cadenceno, lc_cadence)]
     return V_masked.T
 
-def covariance_stellar(lc, lc_cadence):
+def covariance_stellar(lc, cadence_data, N_cadence):
     '''
     Estimate stellar covariance model (stationary toeplitz model), using spectral estimator on detrended light curve
     '''
-    lc_thresh = threshold_data(lc, base_data = None, level=3)
-    lc_cadence_zero = lc_cadence - lc_cadence[0]
-    cadence_len = lc_cadence_zero[-1]
-    structured_lc = np.zeros(cadence_len*2 - 1)
-    structured_lc[:cadence_len] = np.random.normal(0, np.std(lc), cadence_len)  # gap filling
-    structured_lc[lc_cadence_zero] = lc_thresh
+    filled_lc = np.zeros(N_cadence)
+    mask = np.zeros(N_cadence, dtype=bool)
+    mask[cadence_data] = True
 
-    p_noise = smooth_p(structured_lc, K=3)
-    ac = np.real(np.fft.ifft(p_noise)).astype('float32')
-    ac = ac[:cadence_len+1]
+    filled_lc[mask] = threshold_data(lc, level=3)
+    std_ = np.std(filled_lc[cadence_data])
+    filled_lc[~mask] = np.random.normal(0, std_, N_cadence - len(cadence_data))
+
+    zp_lc = np.zeros((2*N_cadence) - 1)
+    zp_lc[:N_cadence] = filled_lc
+    p_noise_smooth = smooth_p(zp_lc, K=3)
+    ac = np.real(np.fft.ifft(p_noise_smooth)).astype('float32')
+    ac = ac[:N_cadence]
+    
     cov_stellar = toeplitz(ac, r = ac)
-    masked_cov_stellar = cov_stellar[lc_cadence_zero]
-    masked_cov_stellar = masked_cov_stellar[:, lc_cadence_zero]
-    return masked_cov_stellar
+    masked_cov_stellar = cov_stellar[cadence_data]
+    masked_cov_stellar = masked_cov_stellar[:, cadence_data]
+    return cov_stellar, masked_cov_stellar
+    
+def covariance_sector(tid, sector):
+    (lc_data, processed_lc_data, detrend_data, norm_offset, quality_data, time_data, cam_data, ccd_data, coeff_ls, centroid_xy_data, pos_xy_corr) = pickle.load(open(os.path.expanduser('~/TESS/data/%s.p' % (tic_id)), 'rb')) 
+    cov_c = pickle.load( open("cov_c%s_%s_%s.p" % (sector, cam, ccd), "rb" ))
+    lc_cadence_zero =  time_data[sector] - cadence_bounds[sector][0] - 1,
+    N_cadence = cadence_bounds[sector][1]-cadence_bounds[sector][0]
+    cov_s, _ = covariance_stellar(detrend_data[sector], cadence_data = lc_cadence_zero, N_cadence = cadence_bounds[sector][1]-cadence_bounds[sector][0])
+    V = pickle.load(open("evec_matrix_%s_%s_%s.p" % (sector, cam_data[sector], ccd_data[sector]), "rb" )) #add correct path!
+    cov_z = np.dot(V.T, np.dot(cov_c, V)) + cov_s
+    cov_inv_z = jax.numpy.linalg.pinv(cov_z)    
+    #cov_inv_z = np.linalg.inv(cov_z)
 
+    print ('symmetry check', check_symmetric(cov_inv_z))
+    print ('nan check',  np.sum(np.isnan(cov_inv_z)))
+    print (np.sum(cov_inv_z))
+    
+    lc_detrend_full = np.zeros(N_cadence)
+    lc_detrend_full[lc_cadence_zero] = detrend_data[sector]
+    cov_inv_z_full = np.zeros((N_cadence, N_cadence))
+    cov_inv_z_full[np.ix_(lc_cadence_zero, lc_cadence_zero)] = cov_inv_z
+    return lc_detrend_full, cov_inv_z_full
+    
 def covariance_model(lc, lc_cadence, sector, cam, ccd, model_order = None, full=True):
     '''
     H1: y = z + t + n, H0: y = z + n
