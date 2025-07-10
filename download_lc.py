@@ -58,4 +58,4 @@ for tid in tid_list:
             # plt.figure
             # plt.scatter(cadence_data, detrend[sector])
             # plt.show
-        pickle.dump((lc_data, processed_lc_data, detrend_data, norm_offset, quality, time_data, cam_data, ccd_data, coeff_ls), open('~/TESS/data/%s.p' % (tic_id), 'wb'))
+        pickle.dump((lc_data, processed_lc_data, detrend_data, norm_offset, quality, time_data, cam_data, ccd_data, coeff_ls, centroid_xy_data), open('~/TESS/data/%s.p' % (tic_id), 'wb'))
