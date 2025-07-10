@@ -28,10 +28,10 @@ def gen_cov_c(sector, cam, ccd):
     tid_list = tid_cam_ccd[tid_cam_ccd[:, 1].astype(int) == sector][:,0]
     N = len(tid_list)
     coeff_ls = np.zeros((N, N_vec))
-    for i in range(N):
-        tid = tid_list[N]
+    for t_i in range(N):
+        tid = str(tid_list[t_i])
         lc, cadence_data = quick_lc_dl(sector, tid)
-        cadence_data -= cadence_bounds[sector][0] - 1
+        cadence_data = cadence_data - cadence_bounds[sector][0] - 1
         lc_offset = np.nanmedian(lc)
         lc -= lc_offset
         lc_norm = np.linalg.norm(lc)
@@ -39,7 +39,7 @@ def gen_cov_c(sector, cam, ccd):
 
         evecs_mask = evecs[:, cadence_data]
         coeff = np.dot(evecs_mask, lc.T)
-        coeff_ls[i] = coeff
+        coeff_ls[t_i] = coeff
     return coeff_ls
 
 for sector in range(sectors[0], sectors[1]+1):
