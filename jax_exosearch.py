@@ -38,7 +38,8 @@ def transit_den(K_d, num_period):
 # ====================================
 
 #(lc_data, processed_lc_data, detrend_data, norm_offset, quality_data, time_data, cam_data, ccd_data, coeff_ls, centroid_xy_data, pos_xy_corr) = pickle.load(open(os.path.expanduser('~/TESS/data/%s.p' % (tic_id)), 'rb')) 
-
+tid = ...
+sector = 73..
 lc_detrend, cov_inv = covariance_sector(tid, sector)
 
 # ====================================
