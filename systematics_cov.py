@@ -43,8 +43,8 @@ def gen_cov_c(sector, cam, ccd):
     return coeff_ls
 
 for sector in range(sectors[0], sectors[1]+1):
-    for i in range(4):
-        for j in range(4):
+    for i in range(1,5):
+        for j in range(1, 5):
             coeff_ls = gen_cov_c(sector, i, j)
             print ('nan check',  np.sum(np.isnan(coeff_ls)))
             coeff_ls_center = coeff_ls - np.mean(coeff_ls, axis=0, keepdims=True)
