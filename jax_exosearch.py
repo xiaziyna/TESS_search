@@ -1,5 +1,6 @@
 import lightkurve as lk
 import numpy as np
+import pickle
 import jax
 import jax.numpy as jnp
 from util import *
@@ -41,6 +42,7 @@ def transit_den(K_d, num_period):
 tid = ...
 sector = 73..
 lc_detrend, cov_inv = covariance_sector(tid, sector)
+transit_profile_d = pickle.load(open("transit_templates.p", "rb"))
 
 # ====================================
 # Defining transit parameter search space (period, epoch, duration)
@@ -63,7 +65,7 @@ for i in range(len(durations)):
     print (i)
     if i != 5: continue # only compute the LRT for one of the trial transit durations
     d = durations[i]
-    transit_profile = jnp.ones(d)
+    transit_profile = jnp.ones(d) * transit_profile_d[durations[i]//30][:d]
     transit_kernel = jnp.outer(transit_profile, transit_profile)
 
     y_d = jax.scipy.signal.convolve(lc_cov_inv, transit_profile)[int(d/2)-1:N_full-int(d/2)-1][::delta]
