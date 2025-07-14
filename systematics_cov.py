@@ -24,8 +24,13 @@ def gen_cov_c(sector, cam, ccd):
     evecs = pickle.load(open("priors/%s/evec_matrix_%s_%s_%s.p" % (sector, sector, cam, ccd), "rb" )
     N_vec = evecs.shape[0]
     N_cadence = cadence_bounds[sector][1] - cadence_bounds[sector][0]
-    tid_cam_ccd = np.loadtxt('cam%s_ccd%s_tids.txt' % (cam, ccd), dtype=int)
-    tid_list = tid_cam_ccd[tid_cam_ccd[:, 1].astype(int) == sector][:,0]
+    tid_list = []
+    with open(f'cam{i}_ccd{j}_tids.txt') as f:
+        for line in f:
+            first, second = line.strip().split('\t')
+            ids = [int(x) for x in second.split(',')]
+            if sector in ids:
+                tid_list.append(str(first))
     N = len(tid_list)
     coeff_ls = np.zeros((N, N_vec))
     for t_i in range(N):
