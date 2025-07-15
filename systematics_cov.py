@@ -19,33 +19,34 @@ def quick_lc_dl(sector, tic_id):
     lc_data = lc_sap.flux.to_value()[~quality.astype(bool)]
     cadence_data = lc_sap.cadenceno[~quality.astype(bool)]
     return lc_data, cadence_data
-        
+
 def gen_cov_c(sector, cam, ccd):
-    evecs = pickle.load(open("priors/%s/evec_matrix_%s_%s_%s.p" % (sector, sector, cam, ccd), "rb" ))
+    evecs = pickle.load(open("evec_matrix_%s_%s_%s.p" % (sector,cam, ccd), "rb" ))
     N_vec = evecs.shape[0]
-    N_cadence = cadence_bounds[sector][1] - cadence_bounds[sector][0]
     tid_list = []
-    with open(f'cam{i}_ccd{j}_tids.txt') as f:
+    with open(f'cam{cam}_ccd{ccd}_tids.txt') as f:
         for line in f:
             first, second = line.strip().split('\t')
             ids = [int(x) for x in second.split(',')]
             if sector in ids:
-                tid_list.append(int(first))
+                tid_list.append(str(first))
     N = len(tid_list)
+    print (N)
     coeff_ls = np.zeros((N, N_vec))
-    for i in range(N):
-        tid = tid_list[N]
-        try: lc, cadence_data = quick_lc_dl(sector, tid)
+    for lc_i in range(20): #range(N):
+        tid = str(tid_list[lc_i])
+        try:
+            lc, cadence_data = quick_lc_dl(sector, tid)
         except: continue
         cadence_data -= cadence_bounds[sector][0]
+        cadence_data -= 1
         lc_offset = np.nanmedian(lc)
         lc -= lc_offset
         lc_norm = np.linalg.norm(lc)
         lc /= lc_norm
-
         evecs_mask = evecs[:, cadence_data]
         coeff = np.dot(evecs_mask, lc.T)
-        coeff_ls[i] = coeff
+        coeff_ls[lc_i] = coeff
     return coeff_ls
 
 for sector in range(sectors[0], sectors[1]+1):
