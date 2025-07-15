@@ -213,7 +213,7 @@ def covariance_sector(tid, sector):
     N_cadence = cadence_bounds[sector][1]-cadence_bounds[sector][0]
     _, cov_s = covariance_stellar(detrend_data[sector], cadence_data = lc_cadence_zero, N_cadence = N_cadence)
     V = pickle.load(open("evec_matrix_%s_%s_%s.p" % (sector, cam_data[sector], ccd_data[sector]), "rb" )) #add correct path!
-    V = V{:, lc_cadence_zero]
+    V = V[:, lc_cadence_zero]
     cov_z = np.dot(V.T, np.dot(cov_c, V)) + cov_s
     cov_inv_z = jax.numpy.linalg.pinv(cov_z)    
     #cov_inv_z = np.linalg.inv(cov_z)
