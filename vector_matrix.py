@@ -11,7 +11,7 @@ for sector in range(sectors[0], sectors[1]+1)
             N_cadence = cadence_bounds[sector][1] - cadence_bounds[sector][0]
             evecs = np.zeros((N_vecs, N_cadence), dtype='float32')
             
-            pattern = f'TESS/data/info/light_curves/cbvs/*{sector}-{cam}-{ccd}*-cbv.fits'
+            pattern = f'TESS/data/info/light_curves/cbvs/*{sector}*{cam}*{ccd}*.fits'
             file_path = glob.glob(pattern)[0]
             with fits.open(file_path, memmap=True) as hdulist:
                 print(f"Loaded {file_path}")
