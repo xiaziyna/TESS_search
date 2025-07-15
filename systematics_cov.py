@@ -1,19 +1,19 @@
 import os
 import numpy as np
-from info import cadence_bounds
+from info import cadence_bounds, sectors
 from sklearn.covariance import empirical_covariance
 from scipy.stats import norm
 
 """
 put quick_lc_dl in util python script maybe
 """
-def quick_lc_dl(sector, tid):
+def quick_lc_dl(sector, tic_id):
     try:
         search_result = lk.search_lightcurve('TIC '+tic_id, mission='TESS', author='SPOC', cadence='short', sector=sector)  
         lightcurve = search_result.download_all()[0]
     except: 
         print ('missing sector', tic_id)
-        continue
+        return
     lc_sap = lightcurve.SAP_FLUX # SAP = Simple Aperture Photometry = unprocessed data
     quality = lc_sap.quality # Quality, tells you when the lightcurve values are bad and should be masked 
     lc_data = lc_sap.flux.to_value()[~quality.astype(bool)]
@@ -21,7 +21,7 @@ def quick_lc_dl(sector, tid):
     return lc_data, cadence_data
         
 def gen_cov_c(sector, cam, ccd):
-    evecs = pickle.load(open("priors/%s/evec_matrix_%s_%s_%s.p" % (sector, sector, cam, ccd), "rb" )
+    evecs = pickle.load(open("priors/%s/evec_matrix_%s_%s_%s.p" % (sector, sector, cam, ccd), "rb" ))
     N_vec = evecs.shape[0]
     N_cadence = cadence_bounds[sector][1] - cadence_bounds[sector][0]
     tid_list = []
@@ -30,13 +30,14 @@ def gen_cov_c(sector, cam, ccd):
             first, second = line.strip().split('\t')
             ids = [int(x) for x in second.split(',')]
             if sector in ids:
-                tid_list.append(str(first))
+                tid_list.append(int(first))
     N = len(tid_list)
     coeff_ls = np.zeros((N, N_vec))
-    for t_i in range(N):
-        tid = str(tid_list[t_i])
-        lc, cadence_data = quick_lc_dl(sector, tid)
-        cadence_data = cadence_data - cadence_bounds[sector][0] - 1
+    for i in range(N):
+        tid = tid_list[N]
+        try: lc, cadence_data = quick_lc_dl(sector, tid)
+        except: continue
+        cadence_data -= cadence_bounds[sector][0]
         lc_offset = np.nanmedian(lc)
         lc -= lc_offset
         lc_norm = np.linalg.norm(lc)
@@ -44,12 +45,13 @@ def gen_cov_c(sector, cam, ccd):
 
         evecs_mask = evecs[:, cadence_data]
         coeff = np.dot(evecs_mask, lc.T)
-        coeff_ls[t_i] = coeff
+        coeff_ls[i] = coeff
     return coeff_ls
 
 for sector in range(sectors[0], sectors[1]+1):
-    for i in range(1,5):
-        for j in range(1, 5):
+    for i in range(4):
+        for j in range(4):
+            print (i, j)
             coeff_ls = gen_cov_c(sector, i, j)
             print ('nan check',  np.sum(np.isnan(coeff_ls)))
             coeff_ls_center = coeff_ls - np.mean(coeff_ls, axis=0, keepdims=True)
