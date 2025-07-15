@@ -1,7 +1,7 @@
 from astropy.io import fits
 import numpy as np
 from info import sectors, cadence_bounds
-
+import glob
 # Format cotrending basis vectors into a full-size matrix, between the beginning and end cadence of each sector
 
 for sector in range(sectors[0], sectors[1]+1)
@@ -10,7 +10,11 @@ for sector in range(sectors[0], sectors[1]+1)
             N_vecs = 8
             N_cadence = cadence_bounds[sector][1] - cadence_bounds[sector][0]
             evecs = np.zeros((N_vecs, N_cadence), dtype='float32')
-            with fits.open('%s %s %s' % (sector, cam, ccd), memmap=True) as hdulist2: #change path/filename
+            
+            pattern = f'TESS/data/info/light_curves/cbvs/*{sector}-{cam}-{ccd}*-cbv.fits'
+            file_path = glob.glob(pattern)[0]
+            with fits.open(file_path, memmap=True) as hdulist:
+                print(f"Loaded {file_path}")
                 for j in range(30):
                     k = j+1
                     try:
