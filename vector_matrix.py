@@ -18,8 +18,8 @@ for sector in range(sectors[0], sectors[1]+1)
                 for j in range(30):
                     k = j+1
                     try:
-                        evec = hdulist2[1].data['VECTOR_%s' % k]
-                        times = hdulist2[1].data['CADENCENO']
+                        evec = hdulist[1].data['VECTOR_%s' % k]
+                        times = hdulist[1].data['CADENCENO']
                         if np.any(evec): N_vecs += 1
                         evecs[j, times - cadence_bounds[sector][0]-1] = evec
                     except: continue
