@@ -3,6 +3,7 @@ import numpy as np
 from info import cadence_bounds, sectors
 from sklearn.covariance import empirical_covariance
 from scipy.stats import norm
+import lightkurve as lk
 
 """
 put quick_lc_dl in util python script maybe
