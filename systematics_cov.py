@@ -33,7 +33,7 @@ def gen_cov_c(sector, cam, ccd):
     N = len(tid_list)
     print (N)
     coeff_ls = np.zeros((N, N_vec))
-    for lc_i in range(20): #range(N):
+    for lc_i in range(N):
         tid = str(tid_list[lc_i])
         try:
             lc, cadence_data = quick_lc_dl(sector, tid)
@@ -68,7 +68,7 @@ mean = np.mean(coeff_ls[:,c_ind])
 var = np.var(coeff_ls[:,c_ind])
 x = np.linspace(-200, 200, 100)
 ax.plot(x, norm.pdf(x, mean, np.sqrt(var)), label = 'Coefficient Prior', color = '#C95000', linewidth=2.5)#plt.plot(5000*norm.pdf(x_axis,mean,var))
-ax.hist(coeffs[:,c_ind], density=True, cumulative = False, histtype='stepfilled', color = '#FF8010', alpha=0.5, bins = 200, label = 'LS Coefficient Values')
+ax.hist(coeff_ls[:,c_ind], density=True, cumulative = False, histtype='stepfilled', color = '#FF8010', alpha=0.5, bins = 200, label = 'LS Coefficient Values')
 ax.set_xlim(-200,200)
 ax.set_ylabel('Density', fontsize = 8)
 ax.legend(frameon=False, fontsize=6, loc=2)
