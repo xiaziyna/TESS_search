@@ -303,7 +303,7 @@ def nd_argsort(x):
     return np.array(np.unravel_index(np.argsort(x, axis=None), x.shape)).T[::-1]
 
 
-def covariance_sector_test(tid, sector):
+def covariance_sector_test(tic_id, sector):
     (lc_data, processed_lc_data, detrend_data, norm_offset, quality_data, time_data, cam_data, ccd_data, coeff_ls, centroid_xy_data, pos_xy_corr) = pickle.load(open(os.path.expanduser('~/TESS/data/%s.p' % (tic_id)), 'rb')) 
     lc_cadence_zero =  time_data[sector] - cadence_bounds[sector][0] - 1,
     N_cadence = cadence_bounds[sector][1]-cadence_bounds[sector][0]
