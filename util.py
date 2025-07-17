@@ -206,7 +206,7 @@ def covariance_stellar(lc, cadence_data, N_cadence):
     masked_cov_stellar = masked_cov_stellar[:, cadence_data]
     return cov_stellar, masked_cov_stellar
     
-def covariance_sector(tid, sector):
+def covariance_sector(tic_id, sector):
     (lc_data, processed_lc_data, detrend_data, norm_offset, quality_data, time_data, cam_data, ccd_data, coeff_ls, centroid_xy_data, pos_xy_corr) = pickle.load(open(os.path.expanduser('~/TESS/data/%s.p' % (tic_id)), 'rb')) 
     cov_c = pickle.load( open("cov_c%s_%s_%s.p" % (sector, cam, ccd), "rb" ))
     lc_cadence_zero =  time_data[sector] - cadence_bounds[sector][0] - 1,
@@ -302,20 +302,22 @@ def box_transit(times_, period, dur, t0, alpha=1):
 def nd_argsort(x):
     return np.array(np.unravel_index(np.argsort(x, axis=None), x.shape)).T[::-1]
 
-
 def covariance_sector_test(tic_id, sector):
-    (lc_data, processed_lc_data, detrend_data, norm_offset, quality_data, time_data, cam_data, ccd_data, coeff_ls, centroid_xy_data, pos_xy_corr) = pickle.load(open(os.path.expanduser('~/TESS/data/%s.p' % (tic_id)), 'rb')) 
-    lc_cadence_zero =  time_data[sector] - cadence_bounds[sector][0] - 1,
+    (lc_data, processed_lc_data, detrend_data, norm_offset, quality_data, time_data, cam_data, ccd_data, coeff_ls, centroid_xy_data, pos_xy_corr) = pickle.load(open('%s.p' % (tic_id), 'rb')) 
+    lc_cadence_zero =  time_data[sector] - cadence_bounds[sector][0] - 1
     N_cadence = cadence_bounds[sector][1]-cadence_bounds[sector][0]
-    _, cov_s = covariance_stellar(detrend_data[sector], cadence_data = lc_cadence_zero, N_cadence = N_cadence)
+
+    _, cov_s = covariance_stellar(detrend_data[sector].unmasked, cadence_data = lc_cadence_zero, N_cadence = N_cadence)
     cov_inv_s = jax.numpy.linalg.pinv(cov_s)    
+    #cov_inv_s = np.linalg.pinv(cov_s)    
 
     print ('symmetry check', check_symmetric(cov_inv_s))
     print ('nan check',  np.sum(np.isnan(cov_inv_s)))
     print (np.sum(cov_inv_s))
-    
+
     lc_detrend_full = np.zeros(N_cadence)
-    lc_detrend_full[lc_cadence_zero] = detrend_data[sector]
+    lc_detrend_full[lc_cadence_zero] = detrend_data[sector].unmasked
+    
     cov_inv_s_full = np.zeros((N_cadence, N_cadence))
     cov_inv_s_full[np.ix_(lc_cadence_zero, lc_cadence_zero)] = cov_inv_s
     return lc_detrend_full, cov_inv_s_full
