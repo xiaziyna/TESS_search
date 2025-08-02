@@ -1,10 +1,5 @@
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy.stats import ttest_ind, chi2
-import lightkurve as lk
-import pickle
-import os
-from info import cadence_bounds
+#working w eod test to use detrended data
+# even odd test, with plotting (optional), individual sector test
 
 def even_odd_phase_our_data(lc, period, time, t0, plot_size=False, same_axes=False, binning=False, duration=None, plot=True):
     
@@ -33,8 +28,8 @@ def even_odd_phase_our_data(lc, period, time, t0, plot_size=False, same_axes=Fal
                 t_stat, p_val = ttest_ind(odd_clean, even_clean)
                 mean_odd = np.nanmean(odd_depths)
                 mean_even = np.nanmean(even_depths)
-                if p_val < 0.05:
-                    print('Statistically significant difference between odd and even transits')
+                #if p_val < 0.05:
+                    #print('Statistically significant difference between odd and even transits')
             except Exception as e:
                 print(f"Error in t-test: {e}")
                 p_val = np.nan
@@ -78,44 +73,42 @@ def even_odd_phase_our_data(lc, period, time, t0, plot_size=False, same_axes=Fal
     return p_val
 
 
-tjd_start_dict = {73: 3445.567, 74: 3470.657, 75:3494.894, 76:3519.372 , 77:3545.051 , 78:3569.402 , 79:3594.317 , 80:3621.724 , 81:3644.990 , 82:3667.042 , 83:3690.635} #start time of each sector in Tess Julian Date
+tjd_start_dict = {73: 3445.567, 74: 3470.657, 75:3494.894, 76:3519.372 , 77:3545.051 , 78:3569.402 , 79:3594.317 , 80:3621.724 , 81:3644.990 , 82:3667.042 , 83:3690.635}
 even_odd_test_results = []
 
-plot = False 
+plot = False  # Set to False to disable plotting
 
 for tid in tic_ids[500:505]:
     (lc_data, processed_lc_data, detrend_data, norm_offset, quality_data, time_data, cam_data, ccd_data, coeff_ls, centroid_xy_data, pos_xy_corr) = pickle.load(open(os.path.expanduser('TESS/data/light_curves/%s.p' % (tid)), 'rb'))
     sector_pvals = []
     for sector in range(73, 84):
-        lc_sector = lc_data[sector].unmasked
+        lc_sector = detrend_data[sector].unmasked
         time_sector = time_data[sector]
         time = np.asarray(time_sector, dtype=float)
         cadence_ref = cadence_bounds[sector][0]
         
         tjd_start = tjd_start_dict[sector]
-        cadence_duration = 2 / (24 * 60)
+        cadence_duration = 2 / (24 * 60) #not always exactly 2 minutes
         time_tjd = tjd_start + (time - time[0]) * cadence_duration
 
         # Manual binning
-        bin_size = 0.004  # day decimal
-        mask = ~np.isnan(time_tjd) & ~np.isnan(lc_sector) #for binning
-        time_clean = time_tjd[mask] #without nans
-        flux_clean = lc_sector[mask] #""     ""
-        min_time = np.min(time_clean)
-        max_time = np.max(time_clean)
+        bin_size = 0.005  # day decimal
+        flux = lc_sector
+        min_time = np.min(time_tjd)
+        max_time = np.max(time_tjd)
         bins = np.arange(min_time, max_time + bin_size, bin_size)
-        bin_indices = np.digitize(time_clean, bins)
+        bin_indices = np.digitize(time_tjd, bins)
         binned_time = []
         binned_flux = []
         for i in range(1, len(bins)):
             in_bin = bin_indices == i
             if np.any(in_bin):
-                binned_time.append(np.mean(time_clean[in_bin]))
-                binned_flux.append(np.mean(flux_clean[in_bin]))
+                binned_time.append(np.mean(time_tjd[in_bin]))
+                binned_flux.append(np.mean(flux[in_bin]))
         binned_time = np.array(binned_time)
         binned_flux = np.array(binned_flux)
 
-        # optional BLS if not parameters
+        # optional BLS if not params
         
         lc = lk.LightCurve(time=binned_time, flux=binned_flux)
         lc_flat = lc.flatten(window_length=401).remove_outliers(sigma=30)
