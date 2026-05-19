@@ -1,0 +1,42 @@
+# high snr targets from results of the search only
+
+#printing high SNR targets 
+import os
+import pickle
+
+RESULTS_DIR = "/nfs/turbo/umor-tjamila/TESS/data/output"
+
+high_snr_targets = []
+
+for fname in os.listdir(RESULTS_DIR):
+    target_id = fname.replace("_results.p", "")
+    if not target_id.isdigit():
+        continue
+
+    fpath = os.path.join(RESULTS_DIR, fname)
+    try:
+        with open(fpath, "rb") as f:
+            results = pickle.load(f)
+
+        best = results['best_candidates'][0]
+        snr  = best['snr']
+
+        if snr > 7:
+            high_snr_targets.append({
+                'target_id':      target_id,
+                'snr':            snr,
+                'period_days':    best['period_days'],
+                'period_cadences': best['period_cadences'],
+            })
+
+    except Exception as e:
+        print(f"  Could not load {fname}: {e}")
+
+high_snr_targets.sort(key=lambda x: x['snr'], reverse=True)
+
+print(f"Targets with SNR > 7: {len(high_snr_targets)}")
+print("=" * 55)
+print(f"{'Target ID':<20} {'SNR':>8} {'Period (days)':>15}")
+print("-" * 55)
+for t in high_snr_targets:
+    print(f"{t['target_id']:<20} {t['snr']:>8.2f} {t['period_days']:>15.4f}")
