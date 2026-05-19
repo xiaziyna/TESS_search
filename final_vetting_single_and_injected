@@ -1,0 +1,537 @@
+# imports, util functions and dictionaries, running the vetting on a single target
+
+#imports
+import gc
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+import pickle
+from scipy.stats import pearsonr, binom, ttest_ind
+from scipy.stats import chi2
+from tess_transit.search import run_search, SearchConfig
+from tess_transit.data.loader import load_pickle, get_lightcurve, available_sectors
+from info import cadence_bounds
+
+plot = True
+
+#constants
+CADENCE_DURATION_DAYS = 2 / (24 * 60)
+
+#start times of the sectors in tess julian date (used in the tests later)
+tjd_start_dict = {
+    73: 3445.567, 74: 3470.657, 75: 3494.894, 76: 3519.372,
+    77: 3545.051, 78: 3569.402, 79: 3594.317, 80: 3621.724,
+    81: 3644.990, 82: 3667.042, 83: 3690.635
+}
+
+LC_DIR   = "tess_transit/data/lightcurves/"
+LAB_DIR  = os.path.expanduser("TESS/data/light_curves/")
+
+#### injection parameters ###
+TARGET_LC   = "tess_transit/data/lightcurves/1201292734.p"   # which target to inject into
+TARGET_ID   = os.path.splitext(os.path.basename(TARGET_LC))[0]
+SECTORS     = [73, 74, 75, 76, 77]   # which sectors to use
+
+INJECT_PERIOD   = 4320   # cadences — 6 days
+INJECT_DURATION = 60     # cadences — 2 hours
+
+#other functions 
+def cadences_to_tjd(cadence_numbers, sector):
+    t0_tjd = tjd_start_dict[sector]
+    c0     = cadence_numbers[0]
+    return t0_tjd + (cadence_numbers - c0) * CADENCE_DURATION_DAYS
+
+def cadence_to_days(n_cadences):
+    return n_cadences * CADENCE_DURATION_DAYS
+
+#vetting test functions
+def even_odd_phase_our_data(flux, time_tjd, period_days, t0_tjd, duration_days, plot_size=0.15, same_axes=False, plot=True):
+    flux     = np.array(flux,     dtype=float)
+    time_tjd = np.array(time_tjd, dtype=float)
+
+    double_period = 2 * period_days
+    phase_full    = ((time_tjd - t0_tjd) % double_period) / double_period
+    phase_odd     = phase_full - np.round(phase_full)
+    phase_even    = (phase_full - 0.5) - np.round(phase_full - 0.5)
+
+    half_window     = duration_days / (2 * period_days)
+    in_transit_odd  = np.abs(phase_odd)  < half_window
+    in_transit_even = np.abs(phase_even) < half_window
+
+    odd_depths  = 1 - flux[in_transit_odd]
+    even_depths = 1 - flux[in_transit_even]
+    odd_clean   = odd_depths[~np.isnan(odd_depths)]
+    even_clean  = even_depths[~np.isnan(even_depths)]
+
+    p_val = np.nan
+    mean_odd = mean_even = np.nan
+    if len(odd_clean) > 1 and len(even_clean) > 1:
+        try:
+            _, p_val  = ttest_ind(odd_clean, even_clean) #we use a t test to see if the difference is statistically significiant
+            mean_odd  = float(np.nanmean(odd_depths))
+            mean_even = float(np.nanmean(even_depths))
+        except Exception as e:
+            print(f"    t-test error: {e}")
+
+    if plot:
+        fig, ax = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
+        ax[0].plot(phase_odd,  flux, lw=0, color='navy',   marker='.', alpha=0.4)
+        ax[1].plot(phase_even, flux, lw=0, color='maroon', marker='.', alpha=0.4)
+        for a, label in zip(ax, ['ODD', 'EVEN']):
+            a.set_xlabel('Phase')
+            a.annotate(label, (0.3, np.nanmin(flux)), fontsize=14)
+            a.set_xlim(-plot_size, plot_size)
+        ax[0].set_ylabel('Normalized flux')
+        plt.subplots_adjust(wspace=0.02)
+        if not np.isnan(p_val):
+            stat_text = (f"Odd depth:  {mean_odd:.4g}\n"
+                         f"Even depth: {mean_even:.4g}\n"
+                         f"p = {p_val:.2g}")
+            ax[0].text(0.05, 0.95, stat_text, transform=ax[0].transAxes,
+                       fontsize=10, va='top', bbox=dict(facecolor='white', alpha=0.7))
+        plt.suptitle("Even-Odd Test (INJECTED transit)", fontsize=13)
+        plt.tight_layout()
+        plt.show()
+
+    return p_val
+
+
+def calculate_enhanced_centroid_motion_pvalue(lc_flux, time_tjd, mom1, mom2, pos1, pos2, period_days, t0_tjd, duration_days,
+    baseline_factor=3.0, sector=None, plot=True):
+    time_tjd = np.asarray(time_tjd, dtype=float) #x points on a lightcurve
+    lc_flux  = np.asarray(lc_flux,  dtype=float) #y points on a lightcurve
+    mom1     = np.asarray(mom1,     dtype=float) #momentum based center of light
+    mom2     = np.asarray(mom2,     dtype=float)
+    pos1     = np.asarray(pos1,     dtype=float) #centroid fitted position center of light
+    pos2     = np.asarray(pos2,     dtype=float)
+
+    centroid_x = mom1 - pos1 #center of light location
+    centroid_y = mom2 - pos2
+
+    #plotting
+    if plot:
+        fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+        axes[0].scatter(time_tjd, lc_flux,    s=3); axes[0].set_title('Lightcurve (injected)')
+        axes[1].scatter(time_tjd, centroid_x, s=3); axes[1].set_title('Centroid X')
+        axes[2].scatter(time_tjd, centroid_y, s=3); axes[2].set_title('Centroid Y')
+        for a in axes: a.set_xlabel('TJD')
+        plt.tight_layout()
+        plt.show()
+
+    t_start, t_end = time_tjd[0], time_tjd[-1] #observation window in time
+    n_min = int(np.floor((t_start - t0_tjd) / period_days)) #indices of transits relative to reference transit (n = 1, text transit, etc.)
+    n_max = int(np.ceil( (t_end   - t0_tjd) / period_days))
+    transit_times = [t0_tjd + n * period_days for n in range(n_min, n_max + 1) #expected transit midpoints using the periods
+                     if t_start <= t0_tjd + n * period_days <= t_end] #len(transit_times) = number of transits in the data
+
+    if len(transit_times) == 0:
+        print(f"  Sector {sector}: no predicted transits in range.")
+        return np.nan
+
+    spike_dur       = min(duration_days, 0.5) #transit window
+    baseline_window = duration_days * baseline_factor #baseline where no transit
+    all_p_values    = []
+
+    for tt in transit_times:
+        transit_mask  = (time_tjd > tt - spike_dur / 2) & (time_tjd < tt + spike_dur / 2) #points inside transit
+        baseline_mask = ((time_tjd > tt - baseline_window) & (time_tjd < tt + baseline_window) & ~transit_mask) #points where baseline
+
+        if np.sum(transit_mask) < 2 or np.sum(baseline_mask) < 5: #making sure we have enough data points
+            continue
+
+        cx_tr = centroid_x[transit_mask];  cy_tr = centroid_y[transit_mask] #transit centroid values during single transit window
+        cx_bl = centroid_x[baseline_mask]; cy_bl = centroid_y[baseline_mask] #baseline centroid values
+        flux_tr  = lc_flux[transit_mask] 
+        flux_dev = (flux_tr / np.nanmedian(flux_tr)) - 1.0 #normalized flux
+
+        for cx in [cx_tr, cy_tr]:
+            valid = ~np.isnan(cx) & ~np.isnan(flux_dev)
+            if np.sum(valid) >= 3:
+                _, p = pearsonr(flux_dev[valid], cx[valid]) #pearson correlation for centroid shift and flux change
+                all_p_values.append(p)
+
+                
+        #check this -> look to see if we already do this earlier in testing
+        for c_tr, c_bl in [(cx_tr, cx_bl), (cy_tr, cy_bl)]: #comparing transit and baseline points
+            bl_clean = c_bl[~np.isnan(c_bl)]
+            tr_clean = c_tr[~np.isnan(c_tr)]
+            if len(bl_clean) > 5 and len(tr_clean) > 0:
+                outliers = np.abs(tr_clean - np.median(bl_clean)) > 5 * np.std(bl_clean) #transits points that deviate more than 3 sigma
+                if np.sum(outliers) > 0:
+                    '''
+                    if outliers, binomial distribution, basically looking for shifts in the centroid points, if no centroid shift, no outliers
+                    assumes gaussian noise
+                    '''
+                    p_sp = 1 - binom.cdf(np.sum(outliers) - 1, len(tr_clean), 0.003) 
+                    all_p_values.append(p_sp)
+
+    if len(all_p_values) == 0:
+        return np.nan
+    return fishers_method(all_p_values)
+
+def fishers_method(p_values):
+    clean = [p for p in p_values if p is not None and not np.isnan(p)]
+    if len(clean) == 0:
+        return np.nan
+    chi2_stat = -2 * np.sum(np.log(np.maximum(clean, 1e-10)))
+    combined  = 1 - chi2.cdf(chi2_stat, 2 * len(clean))
+    return float(np.maximum(combined, 1e-300))
+
+def combined_score_weighted(centroid_p, eop_p):
+    return (3 * min(centroid_p, 1.0) + 1 * min(eop_p, 1.0)) / 4
+
+
+### using injected transit ###
+raw_data  = load_pickle(TARGET_LC)
+lc_list   = [get_lightcurve(raw_data, s) for s in SECTORS]
+first_lc  = lc_list[0]
+
+# t0: place first transit 100 cadences into the first sector
+INJECT_T0 = first_lc.start_cadence + 100
+
+# depth: 5x the noise std so it's clearly detectable
+flux_std    = np.std(first_lc.flux)
+INJECT_DEPTH = 5.0 * flux_std
+
+period_days   = cadence_to_days(INJECT_PERIOD)
+duration_days = cadence_to_days(INJECT_DURATION)
+first_cadence = min(lc.start_cadence for lc in lc_list)
+first_sector  = SECTORS[0]
+t0_tjd        = tjd_start_dict[first_sector] + INJECT_T0 * CADENCE_DURATION_DAYS
+
+print("=" * 60)
+print(f"TARGET:   TIC {TARGET_ID}")
+print(f"Period:   {INJECT_PERIOD} cad  ({period_days:.3f} days)")
+print(f"Duration: {INJECT_DURATION} cad  ({duration_days*24:.1f} hours)")
+print(f"Depth:    {INJECT_DEPTH:.4f}  ({INJECT_DEPTH/flux_std:.1f} sigma)")
+print(f"t0:       {INJECT_T0} cad  (TJD {t0_tjd:.4f})")
+print("=" * 60)
+
+del raw_data, lc_list, first_lc
+gc.collect()
+
+#running search with injected transit
+print("\nRunning search with injected transit...")
+
+results_inj = run_search(
+    TARGET_LC,
+    sectors=SECTORS,
+    config=SearchConfig(
+        durations=np.array([30, 60, 90, 120]),
+        min_period_days=0.5,
+        max_period_days=None,
+        min_transits=2,
+    ),
+    inject_params={
+        'period':   INJECT_PERIOD,
+        'duration': INJECT_DURATION,
+        't0':       INJECT_T0,
+        'depth':    INJECT_DEPTH,
+    }
+)
+
+# Check if the injected signal was recovered
+best_inj  = results_inj['best_candidates'][0]
+recovered = abs(best_inj['period_cadences'] - INJECT_PERIOD) <= 10
+
+print(f"\nInjected period:  {INJECT_PERIOD} cad ({period_days:.3f} days)")
+print(f"Detected period:  {best_inj['period_cadences']} cad ({best_inj['period_days']:.3f} days)")
+print(f"Detected SNR:     {best_inj['snr']:.2f}")
+print(f"Recovery:         {'SUCCESS' if recovered else 'FAILED'}")
+
+if not recovered:
+    print("\nWARNING: injected signal was not recovered as the top candidate.")
+    print("The vetting test will run on whatever the search found instead.")
+
+# Use the detected parameters (not the injected ones) so we test what
+# the search actually returned, just like in the real pipeline
+det_period_days   = best_inj['period_days']
+det_duration_days = cadence_to_days(best_inj['duration'])
+det_t0_tjd        = tjd_start_dict[first_sector] + best_inj['epoch_cadences'] * CADENCE_DURATION_DAYS
+
+#loading in real data
+lab_path = os.path.join(LAB_DIR, f"{TARGET_ID}.p")
+
+#loading in lightcurve
+try:
+    with open(lab_path, "rb") as f:
+        (lc_data, processed_lc_data, detrend_data, norm_offset, quality_data,
+         time_data, cam_data, ccd_data, coeff_ls,
+         centroid_xy_data, pos_xy_corr) = pickle.load(f)
+except Exception as e:
+    raise RuntimeError(f"Could not load lab pickle: {e}")
+
+#running vetting tests sector by sector
+sector_cm_pvals  = []
+sector_eop_pvals = []
+
+for sector in SECTORS:
+    try: #getting data for the tests
+        lc_sector   = np.array(detrend_data[sector].unmasked)
+        time_sector = np.asarray(time_data[sector], dtype=float)
+        time_tjd_s  = cadences_to_tjd(time_sector, sector)
+
+        pos_xy_sector = pos_xy_corr[sector]
+        mom_xy        = centroid_xy_data[sector]
+        pos_cor1 = np.array(pos_xy_sector[0].unmasked)
+        pos_cor2 = np.array(pos_xy_sector[1].unmasked)
+        mom1     = np.array(mom_xy[0].unmasked)
+        mom2     = np.array(mom_xy[1].unmasked)
+    except Exception as e:
+        print(f"  Data extraction failed: {e}, skipping.")
+        continue
+
+    # Centroid motion test
+    try:
+        cm_p = calculate_enhanced_centroid_motion_pvalue(
+            lc_sector, time_tjd=time_tjd_s,
+            mom1=mom1, mom2=mom2, pos1=pos_cor1, pos2=pos_cor2,
+            period_days=det_period_days, t0_tjd=det_t0_tjd,
+            duration_days=max(det_duration_days, cadence_to_days(6)),
+            baseline_factor=3.0, sector=sector, plot=plot
+        )
+    except Exception as e:
+        print(f"  CM test failed: {e}")
+        cm_p = np.nan
+    sector_cm_pvals.append(cm_p)
+    print(f"  CM p-value:  {cm_p:.4g}" if not np.isnan(cm_p) else "  CM: NaN")
+
+    # Bin for even-odd test
+    try:
+        bin_size    = 0.005
+        bins        = np.arange(np.min(time_tjd_s), np.max(time_tjd_s) + bin_size, bin_size)
+        bin_indices = np.digitize(time_tjd_s, bins)
+        b_time, b_flux = [], []
+        for i in range(1, len(bins)):
+            mask = bin_indices == i
+            if np.any(mask):
+                b_time.append(np.mean(time_tjd_s[mask]))
+                b_flux.append(np.mean(lc_sector[mask]))
+        b_time = np.array(b_time)
+        b_flux = np.array(b_flux)
+
+        eop = even_odd_phase_our_data(
+            b_flux, time_tjd=b_time,
+            period_days=det_period_days, t0_tjd=det_t0_tjd,
+            duration_days=det_duration_days,
+            plot_size=0.15, same_axes=False, plot= False
+        )
+    except Exception as e:
+        print(f"  Even-odd test failed: {e}")
+        eop = np.nan
+    sector_eop_pvals.append(eop)
+    print(f"  EOP p-value: {eop:.4g}" if not np.isnan(eop) else "  EOP: NaN")
+
+    del lc_sector, time_sector, time_tjd_s
+    del pos_cor1, pos_cor2, mom1, mom2
+    del b_time, b_flux
+    gc.collect()
+
+#getting combined p values and printing values
+combined_cm_p  = fishers_method(sector_cm_pvals)
+combined_eop_p = fishers_method(sector_eop_pvals)
+score = (combined_score_weighted(combined_cm_p, combined_eop_p)
+         if not np.isnan(combined_cm_p) and not np.isnan(combined_eop_p)
+         else np.nan)
+
+print("\n" + "=" * 60)
+print("INJECTION-RECOVERY VETTING RESULT")
+print("=" * 60)
+print(f"  Recovery:         {'SUCCESS ✓' if recovered else 'FAILED ✗'}")
+print(f"  Detected period:  {det_period_days:.4f} d  (injected: {period_days:.4f} d)")
+print(f"  CM combined p:    {combined_cm_p:.4g}")
+print(f"  EvenOdd comb. p:  {combined_eop_p:.4g}")
+print(f"  Weighted score:   {score:.4g}")
+print()
+
+# Interpretation
+if np.isnan(score):
+    print("  Result: could not compute score (insufficient data).")
+elif score < 0.05:
+    print("  Result: PASSES vetting — consistent with a real planet signal")
+elif score < 0.3:
+    print("  Result: AMBIGUOUS — worth manual inspection.")
+else:
+    print("  Result: FAILS vetting — flagged as likely false positive. ✗")
+    print("  (For an injected planet this would indicate the vetting test")
+    print("   is over-sensitive or the injection parameters need adjustment.)")
+
+# cleaning up -> kernel will die otherwise
+del lc_data, processed_lc_data, detrend_data, norm_offset, quality_data
+del time_data, cam_data, ccd_data, coeff_ls, centroid_xy_data, pos_xy_corr
+del results_inj
+gc.collect()
+
+################################################ using real (non-injected) transit ##########################
+RESULTS_DIR  = "/nfs/turbo/umor-tjamila/TESS/data/output"
+results_path = os.path.join(RESULTS_DIR, f"{TARGET_ID}_results.p")
+
+try:
+    with open(results_path, "rb") as f:
+        results_real = pickle.load(f)
+    print(f"[{TARGET_ID}] Loaded pre-saved search results.")
+except Exception as e:
+    raise RuntimeError(f"Could not load results pickle: {e}")
+
+best_real = results_real['best_candidates'][0]
+
+print(f"\nDetected period:  {best_real['period_cadences']} cad ({best_real['period_days']:.3f} days)")
+print(f"Detected SNR:     {best_real['snr']:.2f}")
+
+det_period_days   = best_real['period_days']
+det_duration_days = cadence_to_days(best_real['duration'])
+det_t0_tjd        = tjd_start_dict[first_sector] + best_real['epoch_cadences'] * CADENCE_DURATION_DAYS
+
+#loading in real data
+lab_path = os.path.join(LAB_DIR, f"{TARGET_ID}.p")
+
+try:
+    with open(lab_path, "rb") as f:
+        (lc_data, processed_lc_data, detrend_data, norm_offset, quality_data,
+         time_data, cam_data, ccd_data, coeff_ls,
+         centroid_xy_data, pos_xy_corr) = pickle.load(f)
+except Exception as e:
+    raise RuntimeError(f"Could not load lab pickle: {e}")
+
+#running vetting tests sector by sector
+sector_cm_pvals  = []
+sector_eop_pvals = []
+
+for sector in SECTORS:
+    try:
+        lc_sector   = np.array(detrend_data[sector].unmasked)
+        time_sector = np.asarray(time_data[sector], dtype=float)
+        time_tjd_s  = cadences_to_tjd(time_sector, sector)
+
+        pos_xy_sector = pos_xy_corr[sector]
+        mom_xy        = centroid_xy_data[sector]
+        pos_cor1 = np.array(pos_xy_sector[0].unmasked)
+        pos_cor2 = np.array(pos_xy_sector[1].unmasked)
+        mom1     = np.array(mom_xy[0].unmasked)
+        mom2     = np.array(mom_xy[1].unmasked)
+    except Exception as e:
+        print(f"  Data extraction failed: {e}, skipping.")
+        continue
+
+    #centroid motion test
+    try:
+        cm_p = calculate_enhanced_centroid_motion_pvalue(
+            lc_sector, time_tjd=time_tjd_s,
+            mom1=mom1, mom2=mom2, pos1=pos_cor1, pos2=pos_cor2,
+            period_days=det_period_days, t0_tjd=det_t0_tjd,
+            duration_days=max(det_duration_days, cadence_to_days(6)),
+            baseline_factor=3.0, sector=sector, plot=plot
+        )
+    except Exception as e:
+        print(f"  CM test failed: {e}")
+        cm_p = np.nan
+    sector_cm_pvals.append(cm_p)
+    print(f"  CM p-value:  {cm_p:.4g}" if not np.isnan(cm_p) else "  CM: NaN")
+
+    #bin for even-odd test
+    try:
+        bin_size    = 0.005
+        bins        = np.arange(np.min(time_tjd_s), np.max(time_tjd_s) + bin_size, bin_size)
+        bin_indices = np.digitize(time_tjd_s, bins)
+        b_time, b_flux = [], []
+        for i in range(1, len(bins)):
+            mask = bin_indices == i
+            if np.any(mask):
+                b_time.append(np.mean(time_tjd_s[mask]))
+                b_flux.append(np.mean(lc_sector[mask]))
+        b_time = np.array(b_time)
+        b_flux = np.array(b_flux)
+
+        eop = even_odd_phase_our_data(
+            b_flux, time_tjd=b_time,
+            period_days=det_period_days, t0_tjd=det_t0_tjd,
+            duration_days=det_duration_days,
+            plot_size=0.15, same_axes=False, plot= False
+        )
+    except Exception as e:
+        print(f"  Even-odd test failed: {e}")
+        eop = np.nan
+    sector_eop_pvals.append(eop)
+    print(f"  EOP p-value: {eop:.4g}" if not np.isnan(eop) else "  EOP: NaN")
+
+    del lc_sector, time_sector, time_tjd_s
+    del pos_cor1, pos_cor2, mom1, mom2
+    del b_time, b_flux
+    gc.collect()
+
+#getting combined p values and printing results
+combined_cm_p  = fishers_method(sector_cm_pvals)
+combined_eop_p = fishers_method(sector_eop_pvals)
+score = (combined_score_weighted(combined_cm_p, combined_eop_p)
+         if not np.isnan(combined_cm_p) and not np.isnan(combined_eop_p)
+         else np.nan)
+
+print("\n" + "=" * 60)
+print("REAL DATA VETTING RESULT")
+print("=" * 60)
+print(f"  Detected period:  {det_period_days:.4f} d")
+print(f"  Detected SNR:     {best_real['snr']:.2f}")
+print(f"  CM combined p:    {combined_cm_p:.4g}")
+print(f"  EvenOdd comb. p:  {combined_eop_p:.4g}")
+print(f"  Weighted score:   {score:.4g}")
+print()
+
+#interpretation
+if np.isnan(score):
+    print("  Result: could not compute score (insufficient data).")
+elif score < 0.05:
+    print("  Result: PASSES vetting — consistent with a real planet signal.")
+elif score < 0.:
+    print("  Result: AMBIGUOUS — worth manual inspection.")
+else:
+    print("  Result: FAILS vetting — flagged as likely false positive. ✗")
+
+#clean up
+del lc_data, processed_lc_data, detrend_data, norm_offset, quality_data
+del time_data, cam_data, ccd_data, coeff_ls, centroid_xy_data, pos_xy_corr
+del results_real
+gc.collect()
+
+
+# graphing stitched lightcurve of both injected and non
+
+#reload lab pickle for plotting
+with open(lab_path, "rb") as f:
+    (lc_data, processed_lc_data, detrend_data, norm_offset, quality_data,
+     time_data, cam_data, ccd_data, coeff_ls,
+     centroid_xy_data, pos_xy_corr) = pickle.load(f)
+
+#stitch lightcurve
+all_time = np.concatenate([cadences_to_tjd(np.asarray(time_data[s], dtype=float), s) for s in SECTORS])
+all_flux = np.concatenate([np.array(detrend_data[s].unmasked) for s in SECTORS])
+
+sort_idx = np.argsort(all_time)
+all_time = all_time[sort_idx]
+all_flux = all_flux[sort_idx]
+
+#inject transit into stitched flux
+all_flux_injected = all_flux.copy()
+n_min = int(np.floor((all_time[0]  - t0_tjd) / period_days))
+n_max = int(np.ceil( (all_time[-1] - t0_tjd) / period_days))
+for n in range(n_min, n_max + 1):
+    tt = t0_tjd + n * period_days
+    transit_mask = np.abs(all_time - tt) < (duration_days / 2)
+    all_flux_injected[transit_mask] -= INJECT_DEPTH
+
+#plot both
+fig, ax = plt.subplots(2, 1, figsize=(16, 7), sharex=True)
+ax[0].scatter(all_time, all_flux,          s=1, alpha=0.4, color='navy')
+ax[1].scatter(all_time, all_flux_injected, s=1, alpha=0.4, color='maroon')
+ax[0].set_ylabel('Flux (real)')
+ax[1].set_ylabel('Flux (injected)')
+ax[1].set_xlabel('TJD')
+ax[0].set_title(f'TIC {TARGET_ID} — stitched lightcurve')
+ax[1].set_title(f'Injected: period={period_days:.3f} d, depth={INJECT_DEPTH:.4f}, duration={duration_days*24:.1f} hr')
+plt.tight_layout()
+plt.show()
+
+#cleanup
+del lc_data, processed_lc_data, detrend_data, norm_offset, quality_data
+del time_data, cam_data, ccd_data, coeff_ls, centroid_xy_data, pos_xy_corr
+del all_time, all_flux, all_flux_injected
+gc.collect()
