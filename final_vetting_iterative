@@ -1,0 +1,211 @@
+# full vetting run with all high SNR targets, saving the results to tess_trasnit/data/results and images
+
+#imports
+import gc
+import pickle
+import numpy as np
+import os
+import matplotlib
+matplotlib.use('Agg')  # non-interactive backend for saving
+import matplotlib.pyplot as plt
+
+#where to save results and where we import the light curvese from
+RESULTS_DIR = "/nfs/turbo/umor-tjamila/TESS/data/output"
+LAB_DIR     = os.path.expanduser("TESS/data/light_curves/")
+SECTORS     = [73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83]
+first_sector = SECTORS[0]
+
+
+OUT_RESULTS = "tess_transit/data/results"
+OUT_IMAGES  = "tess_transit/data/images"
+os.makedirs(OUT_RESULTS, exist_ok=True)
+os.makedirs(OUT_IMAGES,  exist_ok=True)
+
+#for TIC ID in high SNR targets
+for target in high_snr_targets:
+    TARGET_ID = target['target_id']
+    print(f"\n{'='*60}")
+    print(f"Processing TIC {TARGET_ID}  (SNR={target['snr']:.2f})")
+    print(f"{'='*60}")
+
+    # load search results
+    results_path = os.path.join(RESULTS_DIR, f"{TARGET_ID}_results.p")
+    try:
+        with open(results_path, "rb") as f:
+            results_real = pickle.load(f)
+    except Exception as e:
+        print(f"  Could not load results: {e}, skipping.")
+        continue
+
+    best_real         = results_real['best_candidates'][0] #best results from the search bc the search gives SNR for every combination
+    det_period_days   = best_real['period_days']
+    det_duration_days = cadence_to_days(best_real['duration'])
+    det_t0_tjd        = tjd_start_dict[first_sector] + best_real['epoch_cadences'] * CADENCE_DURATION_DAYS
+
+    # load lab pickle
+    lab_path = os.path.join(LAB_DIR, f"{TARGET_ID}.p") #lightcurve data
+    try:
+        with open(lab_path, "rb") as f:
+            (lc_data, processed_lc_data, detrend_data, norm_offset, quality_data,
+             time_data, cam_data, ccd_data, coeff_ls,
+             centroid_xy_data, pos_xy_corr) = pickle.load(f)
+            
+    except Exception as e:
+        print(f"  Could not load lab pickle: {e}, skipping.")
+        continue     
+
+    # vetting loop
+    sector_cm_pvals  = []
+    sector_eop_pvals = []
+    all_time = []
+    all_flux = []
+
+    for sector in SECTORS: #running vetting sector by sector
+        try:
+            lc_sector   = np.array(detrend_data[sector].unmasked) #extracting data out
+            time_sector = np.asarray(time_data[sector], dtype=float)
+            time_tjd_s  = cadences_to_tjd(time_sector, sector)
+
+            pos_xy_sector = pos_xy_corr[sector]
+            mom_xy        = centroid_xy_data[sector]
+            pos_cor1 = np.array(pos_xy_sector[0].unmasked)
+            pos_cor2 = np.array(pos_xy_sector[1].unmasked)
+            mom1     = np.array(mom_xy[0].unmasked)
+            mom2     = np.array(mom_xy[1].unmasked)
+        except Exception as e:
+            print(f"  Sector {sector} skipped: {e}")
+            continue
+
+        # centroid drift quality flag - basically we add this because we kepy getting single point weird anomolies in our result lightcurves
+        centroid_x = mom1 - pos_cor1
+        centroid_y = mom2 - pos_cor2
+        cx_range = np.nanmax(centroid_x) - np.nanmin(centroid_x)
+        cy_range = np.nanmax(centroid_y) - np.nanmin(centroid_y)
+        cx_std   = np.nanstd(centroid_x)
+        cy_std   = np.nanstd(centroid_y)
+        if cx_range > 10 * cx_std or cy_range > 10 * cy_std:
+            print(f"  ⚠ Sector {sector}: centroid drift detected, excluding.")
+            sector_cm_pvals.append(np.nan)
+            sector_eop_pvals.append(np.nan)
+            continue
+
+        try:
+            ## sigma cliping to prevent the single sector outliers, if the lightcurves look weird, etc. -> double check if 5 is too little ***
+            med = np.median(lc_sector)
+            std = np.std(lc_sector)
+            bad = np.abs(lc_sector - med) > 5 * std
+            if np.sum(bad) > 0:
+                print(f"  Sector {sector}: clipping {np.sum(bad)} outlier cadences")
+                lc_sector = lc_sector.copy()
+                lc_sector[bad] = med
+                for arr in [mom1, mom2, pos_cor1, pos_cor2]:
+                    arr[bad] = np.median(arr) #replaces the bad points with the median because the test relies on specific numbers of points in the array
+
+            cm_p = calculate_enhanced_centroid_motion_pvalue(
+                lc_sector, time_tjd=time_tjd_s,
+                mom1=mom1, mom2=mom2, pos1=pos_cor1, pos2=pos_cor2,
+                period_days=det_period_days, t0_tjd=det_t0_tjd,
+                duration_days=max(det_duration_days, cadence_to_days(6)),
+                baseline_factor=3.0, sector=sector, plot=False  ###################################### if plot ######################################
+            )
+        except Exception as e:
+            print(f"  CM test failed: {e}")
+            cm_p = np.nan
+        sector_cm_pvals.append(cm_p)
+        print(f"  Sector {sector} CM p:  {cm_p:.4g}" if not np.isnan(cm_p) else f"  Sector {sector} CM: NaN")
+
+        try:
+            bin_size    = 0.005 #we bin to prevent noise from too many points when performing the test
+            bins        = np.arange(np.min(time_tjd_s), np.max(time_tjd_s) + bin_size, bin_size)
+            bin_indices = np.digitize(time_tjd_s, bins)
+            b_time, b_flux = [], []
+            for i in range(1, len(bins)):
+                mask = bin_indices == i
+                if np.any(mask):
+                    b_time.append(np.mean(time_tjd_s[mask]))
+                    b_flux.append(np.mean(lc_sector[mask]))
+            b_time = np.array(b_time)
+            b_flux = np.array(b_flux)
+
+            eop = even_odd_phase_our_data(
+                b_flux, time_tjd=b_time,
+                period_days=det_period_days, t0_tjd=det_t0_tjd,
+                duration_days=det_duration_days,
+                plot_size=0.15, same_axes=False, plot=False
+            )
+        except Exception as e:
+            print(f"  EOP test failed: {e}")
+            eop = np.nan
+        sector_eop_pvals.append(eop)
+        print(f"  Sector {sector} EOP p: {eop:.4g}" if not np.isnan(eop) else f"  Sector {sector} EOP: NaN")
+
+        all_time.append(time_tjd_s)
+        all_flux.append(lc_sector)
+
+    # combined results
+    combined_cm_p  = fishers_method(sector_cm_pvals)
+    combined_eop_p = fishers_method(sector_eop_pvals)
+    score = (combined_score_weighted(combined_cm_p, combined_eop_p)
+             if not np.isnan(combined_cm_p) and not np.isnan(combined_eop_p)
+             else np.nan)
+
+    if np.isnan(score):
+        verdict = "INSUFFICIENT DATA"
+    elif score < 0.05:
+        verdict = "PASSES — consistent with real planet signal"
+    elif score < 0.3:
+        verdict = "AMBIGUOUS — worth manual inspection"
+    else:
+        verdict = "FAILS — likely false positive"
+
+    print(f"\n  CM combined p:   {combined_cm_p:.4g}")
+    print(f"  EOP combined p:  {combined_eop_p:.4g}")
+    print(f"  Weighted score:  {score:.4g}")
+    print(f"  Verdict:         {verdict}")
+
+    # save results pickle
+    result_out = {
+        'target_id':       TARGET_ID,
+        'snr':             best_real['snr'],
+        'period_days':     det_period_days,
+        'duration_days':   det_duration_days,
+        'combined_cm_p':   combined_cm_p,
+        'combined_eop_p':  combined_eop_p,
+        'score':           score,
+        'verdict':         verdict,
+        'sector_cm_pvals': sector_cm_pvals,
+        'sector_eop_pvals': sector_eop_pvals,
+    }
+    with open(os.path.join(OUT_RESULTS, f"{TARGET_ID}_vetting.p"), "wb") as f:
+        pickle.dump(result_out, f)
+
+    # save stitched light curve image
+    if all_time:
+        all_time_cat = np.concatenate(all_time) #all time stitched (concatentated bc its not in lightcurve format so we cant .stitch)
+        all_flux_cat = np.concatenate(all_flux)
+        sort_idx = np.argsort(all_time_cat)
+
+        t_start, t_end = all_time_cat.min(), all_time_cat.max()
+        n_min = int(np.floor((t_start - det_t0_tjd) / det_period_days))
+        n_max = int(np.ceil((t_end   - det_t0_tjd) / det_period_days))
+        transit_times = [det_t0_tjd + n * det_period_days for n in range(n_min, n_max + 1)
+                         if t_start <= det_t0_tjd + n * det_period_days <= t_end]
+
+        fig, ax = plt.subplots(figsize=(16, 4))
+        ax.plot(all_time_cat[sort_idx], all_flux_cat[sort_idx], '.', ms=1, color='navy', alpha=0.6)
+        for tt in transit_times:
+            ax.axvline(tt, color='red', alpha=0.4, linewidth=0.5, linestyle='--') ################# plotting the transit times here from search params
+        ax.set_xlabel('TJD')
+        ax.set_ylabel('Normalized flux')
+        ax.set_title(f'TIC {TARGET_ID} — SNR={best_real["snr"]:.1f}  score={score:.3g}  {verdict}')
+        plt.tight_layout()
+        plt.savefig(os.path.join(OUT_IMAGES, f"{TARGET_ID}_lightcurve.png"), dpi=150)
+        plt.close(fig)
+
+    # clean up otherwise the kernel will die after each target
+    del lc_data, processed_lc_data, detrend_data, norm_offset, quality_data
+    del time_data, cam_, ccd_data, coeff_ls, centroid_xy_data, pos_xy_corr
+    del results_real
+    gc.collect()
+
+print(f"\nDone. Results in {OUT_RESULTS}, images in {OUT_IMAGES}")
