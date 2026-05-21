@@ -143,8 +143,8 @@ for target in high_snr_targets:
         all_flux.append(lc_sector)
 
     # combined results
-    combined_cm_p  = fishers_method(sector_cm_pvals)
-    combined_eop_p = fishers_method(sector_eop_pvals)
+    combined_cm_p  = stouffers_method(sector_cm_pvals)
+    combined_eop_p = stouffers_method(sector_eop_pvals)
     score = (combined_score_weighted(combined_cm_p, combined_eop_p)
              if not np.isnan(combined_cm_p) and not np.isnan(combined_eop_p)
              else np.nan)
