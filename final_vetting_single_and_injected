@@ -45,18 +45,21 @@ def cadence_to_days(n_cadences):
     return n_cadences * CADENCE_DURATION_DAYS
 
 #vetting test functions
+
+#vetting test functions
 def even_odd_phase_our_data(flux, time_tjd, period_days, t0_tjd, duration_days, plot_size=0.15, same_axes=False, plot=True):
     flux     = np.array(flux,     dtype=float)
     time_tjd = np.array(time_tjd, dtype=float)
 
-    double_period = 2 * period_days
-    phase_full    = ((time_tjd - t0_tjd) % double_period) / double_period
-    phase_odd     = phase_full - np.round(phase_full)
-    phase_even    = (phase_full - 0.5) - np.round(phase_full - 0.5)
+    phase_full  = ((time_tjd - t0_tjd) % period_days) / period_days
+    phase_folded = phase_full - np.round(phase_full)
+
+    transit_num = np.floor((time_tjd - t0_tjd) / period_days).astype(int)
 
     half_window     = duration_days / (2 * period_days)
-    in_transit_odd  = np.abs(phase_odd)  < half_window
-    in_transit_even = np.abs(phase_even) < half_window
+    in_transit      = np.abs(phase_folded) < half_window
+    in_transit_odd  = in_transit & (transit_num % 2 == 1)
+    in_transit_even = in_transit & (transit_num % 2 == 0)
 
     odd_depths  = 1 - flux[in_transit_odd]
     even_depths = 1 - flux[in_transit_even]
@@ -94,7 +97,6 @@ def even_odd_phase_our_data(flux, time_tjd, period_days, t0_tjd, duration_days, 
         plt.show()
 
     return p_val
-
 
 def calculate_enhanced_centroid_motion_pvalue(lc_flux, time_tjd, mom1, mom2, pos1, pos2, period_days, t0_tjd, duration_days,
     baseline_factor=3.0, sector=None, plot=True):
@@ -167,15 +169,17 @@ def calculate_enhanced_centroid_motion_pvalue(lc_flux, time_tjd, mom1, mom2, pos
 
     if len(all_p_values) == 0:
         return np.nan
-    return fishers_method(all_p_values)
+    return stouffers_method(all_p_values)
 
-def fishers_method(p_values):
+def stouffers_method(p_values):  #z score
     clean = [p for p in p_values if p is not None and not np.isnan(p)]
     if len(clean) == 0:
         return np.nan
-    chi2_stat = -2 * np.sum(np.log(np.maximum(clean, 1e-10)))
-    combined  = 1 - chi2.cdf(chi2_stat, 2 * len(clean))
-    return float(np.maximum(combined, 1e-300))
+    # clip to avoid infinite z-scores
+    clipped = [max(min(p, 1 - 1e-10), 1e-10) for p in clean]
+    z_scores = [norm.ppf(p) for p in clipped]
+    combined_z = np.sum(z_scores) / np.sqrt(len(z_scores))
+    return float(norm.cdf(combined_z))
 
 def combined_score_weighted(centroid_p, eop_p):
     return (3 * min(centroid_p, 1.0) + 1 * min(eop_p, 1.0)) / 4
@@ -328,8 +332,8 @@ for sector in SECTORS:
     gc.collect()
 
 #getting combined p values and printing values
-combined_cm_p  = fishers_method(sector_cm_pvals)
-combined_eop_p = fishers_method(sector_eop_pvals)
+combined_cm_p  = stouffers_method(sector_cm_pvals)
+combined_eop_p = stouffers_method(sector_eop_pvals)
 score = (combined_score_weighted(combined_cm_p, combined_eop_p)
          if not np.isnan(combined_cm_p) and not np.isnan(combined_eop_p)
          else np.nan)
@@ -460,8 +464,8 @@ for sector in SECTORS:
     gc.collect()
 
 #getting combined p values and printing results
-combined_cm_p  = fishers_method(sector_cm_pvals)
-combined_eop_p = fishers_method(sector_eop_pvals)
+combined_cm_p  = stouffers_method(sector_cm_pvals)
+combined_eop_p = stouffers_method(sector_eop_pvals)
 score = (combined_score_weighted(combined_cm_p, combined_eop_p)
          if not np.isnan(combined_cm_p) and not np.isnan(combined_eop_p)
          else np.nan)
